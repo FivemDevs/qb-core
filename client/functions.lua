@@ -622,3 +622,97 @@ function QBCore.Functions.SetVehicleProperties(vehicle, props)
         end
     end
 end
+
+-- Entity Enumerator functions
+local entityEnumerator = {
+    __gc = function(enum)
+        if enum.destructor and enum.handle then
+            enum.destructor(enum.handle)
+        end
+
+        enum.destructor = nil
+        enum.handle = nil
+    end
+}
+
+function QBCore.Functions.EnumerateEntities(initFunc, moveFunc, disposeFunc)
+    return coroutine.wrap(
+        function()
+            local iter, id = initFunc()
+            if not id or id == 0 then
+                disposeFunc(iter)
+                return
+            end
+
+            local enum = {
+                handle = iter,
+                destructor = disposeFunc
+            }
+            setmetatable(enum, entityEnumerator)
+            local next = true
+
+            repeat
+                coroutine.yield(id)
+                next, id = moveFunc(iter)
+            until not next
+
+            enum.destructor, enum.handle = nil, nil
+            disposeFunc(iter)
+        end
+    )
+end
+
+function QBCore.Functions.EnumerateEntitiesWithinDistance(entities, isPlayerEntities, coords, maxDistance)
+    local nearbyEntities = {}
+
+    if coords then
+        coords = vector3(coords.x, coords.y, coords.z)
+    else
+        local playerPed = PlayerPedId()
+        coords = GetEntityCoords(playerPed)
+    end
+
+    for k, entity in pairs(entities) do
+        local distance = #(coords - GetEntityCoords(entity))
+
+        if distance <= maxDistance then
+            nearbyEntities[#nearbyEntities + 1] = isPlayerEntities and k or entity
+        end
+    end
+
+    return nearbyEntities
+end
+
+function QBCore.Functions.EnumerateObjects()
+    return QBCore.Functions.EnumerateEntities(FindFirstObject, FindNextObject, EndFindObject)
+end
+
+function QBCore.Functions.EnumeratePeds()
+    return QBCore.Functions.EnumerateEntities(FindFirstPed, FindNextPed, EndFindPed)
+end
+
+function QBCore.Functions.EnumeratePickups()
+    return QBCore.Functions.EnumerateEntities(FindFirstPickup, FindNextPickup, EndFindPickup)
+end
+
+function QBCore.Functions.EnumerateVehicles()
+    return QBCore.Functions.EnumerateEntities(FindFirstVehicle, FindNextVehicle, EndFindVehicle)
+end
+
+function QBCore.Functions.GetVehicles()
+    local vehicles = {}
+
+    for vehicle in QBCore.Functions.EnumerateVehicles() do
+        vehicles[#vehicles + 1] = vehicle
+    end
+
+    return vehicles
+end
+
+function QBCore.Functions.GetVehiclesInArea(coords, maxDistance)
+    return QBCore.Functions.EnumerateEntitiesWithinDistance(QBCore.Functions.GetVehicles(), false, coords, maxDistance)
+end
+
+function QBCore.Functions.IsSpawnPointClear(coords, maxDistance)
+    return #QBCore.Functions.GetVehiclesInArea(coords, maxDistance) == 0
+end
